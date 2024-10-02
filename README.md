@@ -1,6 +1,3 @@
-Here’s the `README.md` file for **ChatMate**:
-
-```markdown
 # ChatMate
 
 ChatMate is a local network-based chat application where users can create and join chat groups with a passkey. The program allows multiple users to connect within the same local network, chat in real-time, and assigns each user a unique color for their messages.
