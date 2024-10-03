@@ -10,9 +10,8 @@ from pyfiglet import Figlet
 # Configuration
 PORT = 65432  # Port to use for communication
 BUFFER_SIZE = 1024  # Buffer size for receiving messages
-
-# Store groups and their participants
-groups = {}
+groups = {}  # Store groups and their participants
+clients = {}  # Store connected clients {username: connection}
 
 def get_local_ip():
     """Fetches the local IP address of this machine."""
@@ -37,7 +36,7 @@ def handle_client(conn, addr):
             data = conn.recv(BUFFER_SIZE).decode()
             if not data:
                 break
-            
+
             command, *args = data.split(' ')
 
             if command == 'create':
@@ -46,6 +45,7 @@ def handle_client(conn, addr):
                     conn.sendall(b'Group already exists!')
                 else:
                     groups[group_name] = {'passkey': passkey, 'participants': [username]}
+                    clients[username] = conn
                     conn.sendall(b'Group created successfully. Waiting for participants...')
                     print(colored(f"[+] Group '{group_name}' created by {username}.", 'cyan'))
 
@@ -53,9 +53,9 @@ def handle_client(conn, addr):
                 username, group_name, passkey = args
                 if group_name in groups and groups[group_name]['passkey'] == passkey:
                     groups[group_name]['participants'].append(username)
+                    clients[username] = conn
                     conn.sendall(b'Joined group successfully.')
                     print(colored(f"[+] {username} joined group '{group_name}'.", 'cyan'))
-                    # Notify other participants
                     broadcast_message(group_name, f"{username} has joined the group.", exclude=username)
                 else:
                     conn.sendall(b'Failed to join group. Check group name and passkey.')
@@ -74,6 +74,8 @@ def handle_client(conn, addr):
     except Exception as e:
         print(colored(f"[-] Error handling client {addr}: {e}", 'red'))
     finally:
+        if username and username in clients:
+            del clients[username]
         conn.close()
         print(colored(f"[-] Disconnected from {addr}", 'yellow'))
 
@@ -81,14 +83,12 @@ def broadcast_message(group_name, message, exclude=None):
     """Broadcasts a message to all participants in a group."""
     for participant in groups[group_name]['participants']:
         if participant != exclude:
-            participant_conn = find_connection(participant)
+            participant_conn = clients.get(participant)
             if participant_conn:
-                participant_conn.sendall(message.encode())
-
-def find_connection(username):
-    """Finds the connection associated with a username (not implemented here)."""
-    # This function can be implemented to maintain a mapping of usernames to connections.
-    return None
+                try:
+                    participant_conn.sendall(message.encode())
+                except:
+                    print(colored(f"[-] Failed to send message to {participant}.", 'red'))
 
 def server(local_ip):
     """Runs a server to listen for client connections."""
