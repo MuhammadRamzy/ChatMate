@@ -1,0 +1,9 @@
+LICENSE
+README.md
+setup.py
+chatmate.egg-info/PKG-INFO
+chatmate.egg-info/SOURCES.txt
+chatmate.egg-info/dependency_links.txt
+chatmate.egg-info/entry_points.txt
+chatmate.egg-info/requires.txt
+chatmate.egg-info/top_level.txt

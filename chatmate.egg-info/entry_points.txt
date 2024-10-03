@@ -1,0 +1,2 @@
+[console_scripts]
+chatmate = src.main:main
