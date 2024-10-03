@@ -171,7 +171,7 @@ class ChatClient:
             try:
                 message = self.sock.recv(BUFFER_SIZE).decode()
                 if message:
-                    print(f"\r{message}\n{self.username} ", end='')
+                    print(f"\r{message}\n ", end='')
             except Exception as e:
                 print(colored(f"[-] Receive error: {e}", 'red'))
                 self.stop_threads.set()
