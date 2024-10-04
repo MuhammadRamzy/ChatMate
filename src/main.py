@@ -7,7 +7,7 @@ import logging
 from datetime import datetime
 
 # Configuration
-PORT = 65432  # Port to use for communication
+PORT = 65433  # Changed Port to avoid conflicts
 BUFFER_SIZE = 4096  # Increased buffer size for larger messages
 
 # Configure logging
@@ -244,6 +244,15 @@ class ChatGUI:
         self.style = ttk.Style()
         self.style.theme_use('clam')
 
+        # Configure custom styles
+        self.style.configure('Header.TLabel', font=('Helvetica', 18, 'bold'))
+        self.style.configure('TLabel', font=('Helvetica', 12))
+        self.style.configure('TEntry', font=('Helvetica', 12))
+        self.style.configure('TButton', font=('Helvetica', 12))
+        self.style.configure('Accent.TButton', foreground='white', background='#0078D7')
+        self.style.map('Accent.TButton',
+                       background=[('active', '#005A9E'), ('disabled', '#D6D6D6')])
+
         self.create_login_screen()
 
     def create_login_screen(self):
@@ -252,34 +261,37 @@ class ChatGUI:
         """
         self.clear_screen()
 
-        main_frame = ttk.Frame(self.root, padding="10")
+        main_frame = ttk.Frame(self.root, padding="20")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        title_label = ttk.Label(main_frame, text="Welcome to ChatMate", font=("Helvetica", 18, 'bold'))
+        title_label = ttk.Label(main_frame, text="Welcome to ChatMate", style='Header.TLabel')
         title_label.pack(pady=20)
 
         form_frame = ttk.Frame(main_frame)
-        form_frame.pack(pady=10)
+        form_frame.pack(pady=10, fill=tk.X)
+
+        # Configure grid layout
+        form_frame.columnconfigure(1, weight=1)
 
         # Username
-        ttk.Label(form_frame, text="Username:", font=("Helvetica", 12)).grid(row=0, column=0, sticky=tk.W, pady=5)
-        self.username_entry = ttk.Entry(form_frame, font=("Helvetica", 12))
-        self.username_entry.grid(row=0, column=1, pady=5)
+        ttk.Label(form_frame, text="Username:").grid(row=0, column=0, sticky=tk.E, padx=5, pady=5)
+        self.username_entry = ttk.Entry(form_frame)
+        self.username_entry.grid(row=0, column=1, padx=5, pady=5, sticky=tk.EW)
 
         # Group Name
-        ttk.Label(form_frame, text="Group Name:", font=("Helvetica", 12)).grid(row=1, column=0, sticky=tk.W, pady=5)
-        self.group_name_entry = ttk.Entry(form_frame, font=("Helvetica", 12))
-        self.group_name_entry.grid(row=1, column=1, pady=5)
+        ttk.Label(form_frame, text="Group Name:").grid(row=1, column=0, sticky=tk.E, padx=5, pady=5)
+        self.group_name_entry = ttk.Entry(form_frame)
+        self.group_name_entry.grid(row=1, column=1, padx=5, pady=5, sticky=tk.EW)
 
         # Passkey
-        ttk.Label(form_frame, text="Passkey:", font=("Helvetica", 12)).grid(row=2, column=0, sticky=tk.W, pady=5)
-        self.passkey_entry = ttk.Entry(form_frame, show='*', font=("Helvetica", 12))
-        self.passkey_entry.grid(row=2, column=1, pady=5)
+        ttk.Label(form_frame, text="Passkey:").grid(row=2, column=0, sticky=tk.E, padx=5, pady=5)
+        self.passkey_entry = ttk.Entry(form_frame, show='*')
+        self.passkey_entry.grid(row=2, column=1, padx=5, pady=5, sticky=tk.EW)
 
         # Server IP
-        ttk.Label(form_frame, text="Server IP:", font=("Helvetica", 12)).grid(row=3, column=0, sticky=tk.W, pady=5)
-        self.server_ip_entry = ttk.Entry(form_frame, font=("Helvetica", 12))
-        self.server_ip_entry.grid(row=3, column=1, pady=5)
+        ttk.Label(form_frame, text="Server IP:").grid(row=3, column=0, sticky=tk.E, padx=5, pady=5)
+        self.server_ip_entry = ttk.Entry(form_frame)
+        self.server_ip_entry.grid(row=3, column=1, padx=5, pady=5, sticky=tk.EW)
         self.server_ip_entry.insert(0, "127.0.0.1")
 
         # Buttons
@@ -291,11 +303,6 @@ class ChatGUI:
 
         join_button = ttk.Button(button_frame, text="Join Group", command=self.join_group)
         join_button.grid(row=0, column=1, padx=10)
-
-        # Style for Accent Button
-        self.style.configure('Accent.TButton', foreground='white', background='#0078D7')
-        self.style.map('Accent.TButton',
-                       background=[('active', '#005A9E'), ('disabled', '#D6D6D6')])
 
     def create_group(self):
         """
@@ -310,7 +317,7 @@ class ChatGUI:
             messagebox.showerror("Error", "All fields are required.")
             return
 
-        local_ip = server_ip if server_ip else '127.0.0.1'
+        local_ip = server_ip if server_ip else ' 192.168.253.134'
 
         # Start server in a separate thread
         chat_server = ChatServer(local_ip, PORT)
@@ -320,8 +327,8 @@ class ChatGUI:
 
         # Start client
         self.client = ChatClient(username, group_name, passkey, local_ip, PORT, self)
+        self.create_chat_screen()  # Moved before connect_to_server
         self.client.connect_to_server('create')
-        self.create_chat_screen()
 
     def join_group(self):
         """
@@ -338,8 +345,8 @@ class ChatGUI:
 
         # Start client
         self.client = ChatClient(username, group_name, passkey, server_ip, PORT, self)
+        self.create_chat_screen()  # Moved before connect_to_server
         self.client.connect_to_server('join')
-        self.create_chat_screen()
 
     def create_chat_screen(self):
         """
@@ -347,26 +354,33 @@ class ChatGUI:
         """
         self.clear_screen()
 
-        self.root.geometry("600x500")
+        self.root.geometry("800x600")
         self.root.resizable(True, True)
 
         main_frame = ttk.Frame(self.root, padding="5")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
         # Chat display
-        self.chat_display = scrolledtext.ScrolledText(main_frame, state='disabled', wrap=tk.WORD, font=("Helvetica", 12))
+        self.chat_display = scrolledtext.ScrolledText(main_frame, state='disabled', wrap=tk.WORD, font=("Helvetica", 12),
+                                                      bg='#FFFFFF', fg='#000000')
         self.chat_display.pack(padx=5, pady=5, fill=tk.BOTH, expand=True)
+
+        # Configure tags for message formatting
+        self.chat_display.tag_configure('user', foreground='#0078D7', font=('Helvetica', 12, 'bold'))
+        self.chat_display.tag_configure('other', foreground='#000000', font=('Helvetica', 12))
+        self.chat_display.tag_configure('system', foreground='#888888', font=('Helvetica', 12, 'italic'))
 
         # Message entry frame
         entry_frame = ttk.Frame(main_frame)
         entry_frame.pack(fill=tk.X, pady=5)
+        entry_frame.columnconfigure(0, weight=1)
 
-        self.message_entry = ttk.Entry(entry_frame, font=("Helvetica", 12))
-        self.message_entry.pack(side=tk.LEFT, padx=5, pady=5, fill=tk.X, expand=True)
+        self.message_entry = tk.Entry(entry_frame, font=("Helvetica", 12), bg='#FFFFFF', fg='#000000')
+        self.message_entry.grid(row=0, column=0, padx=5, pady=5, sticky='ew')
         self.message_entry.bind("<Return>", self.send_message)
 
         send_button = ttk.Button(entry_frame, text="Send", command=self.send_message, style='Accent.TButton')
-        send_button.pack(side=tk.RIGHT, padx=5)
+        send_button.grid(row=0, column=1, padx=5, pady=5)
 
     def add_message(self, message):
         """
@@ -374,7 +388,19 @@ class ChatGUI:
         """
         self.chat_display.configure(state='normal')
         timestamp = datetime.now().strftime('%H:%M:%S')
-        self.chat_display.insert(tk.END, f"[{timestamp}] {message}\n")
+
+        # Determine the message type
+        if message.startswith(f"{self.client.username}:"):
+            tag = 'user'
+            display_message = f"[{timestamp}] You: {message[len(self.client.username)+1:].strip()}\n"
+        elif message.startswith('<') and ('joined the group' in message or 'has left the group' in message):
+            tag = 'system'
+            display_message = f"[{timestamp}] {message}\n"
+        else:
+            tag = 'other'
+            display_message = f"[{timestamp}] {message}\n"
+
+        self.chat_display.insert(tk.END, display_message, tag)
         self.chat_display.configure(state='disabled')
         self.chat_display.see(tk.END)
 
