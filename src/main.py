@@ -7,13 +7,17 @@ import time
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
+from rich.table import Table
+from rich.layout import Layout
+from rich.text import Text
+from rich import box
 from pyfiglet import Figlet
 
 console = Console()
 
 # Configuration
 PORT = 65432  # Port to use for communication
-BUFFER_SIZE = 1024  # Buffer size for receiving messages
+BUFFER_SIZE = 4096  # Increased buffer size for larger messages
 
 def get_local_ip():
     """Fetches the local IP address of this machine."""
@@ -35,7 +39,7 @@ def display_banner():
     """Displays the 'ChatMate' banner."""
     f = Figlet(font='slant')
     banner = f.renderText('ChatMate')
-    console.print(Panel(banner, style="cyan"), justify="center")
+    console.print(Panel(Text(banner, justify="center", style="bold cyan"), style="bold blue"), justify="center")
 
 class ChatServer:
     def __init__(self, host, port):
@@ -50,12 +54,12 @@ class ChatServer:
         try:
             self.server_socket.bind((self.host, self.port))
             self.server_socket.listen()
-            console.print(f"[bold cyan][*][/bold cyan] Server listening on {self.host}:{self.port}...")
+            console.print(f"[bold cyan][*][/bold cyan] Server listening on {self.host}:{self.port}...", style="bold green")
             while True:
                 conn, addr = self.server_socket.accept()
                 threading.Thread(target=self.handle_client, args=(conn, addr), daemon=True).start()
         except Exception as e:
-            console.print(f"[bold red][-][/bold red] Server error: {e}")
+            console.print(f"[bold red][-][/bold red] Server error: {e}", style="bold red")
         finally:
             self.server_socket.close()
 
@@ -78,17 +82,17 @@ class ChatServer:
                         else:
                             self.groups[group_name] = {'passkey': passkey, 'participants': [username]}
                             self.clients[username] = conn
-                            conn.sendall(b'Group created successfully. Waiting for participants...')
-                            console.print(f"[bold cyan][+][/bold cyan] Group '{group_name}' created by {username}.")
+                            conn.sendall(f'Group "{group_name}" created successfully. Waiting for participants...'.encode())
+                            console.print(f"[bold cyan][+][/bold cyan] Group '{group_name}' created by {username}.", style="bold green")
                 elif command == 'join':
                     username, group_name, passkey = args[0].split(' ')
                     with self.lock:
                         if group_name in self.groups and self.groups[group_name]['passkey'] == passkey:
                             self.groups[group_name]['participants'].append(username)
                             self.clients[username] = conn
-                            conn.sendall(b'Joined group successfully.')
+                            conn.sendall(f'Joined group "{group_name}" successfully.'.encode())
                             self.broadcast_message(group_name, f"[bold green]<{username}> joined the group.[/bold green]", exclude=username)
-                            console.print(f"[bold cyan][+][/bold cyan] {username} joined group '{group_name}'.")
+                            console.print(f"[bold cyan][+][/bold cyan] {username} joined group '{group_name}'.", style="bold green")
                         else:
                             conn.sendall(b'Failed to join group. Check group name and passkey.')
                 elif command == 'msg':
@@ -126,7 +130,7 @@ class ChatServer:
                 else:
                     conn.sendall(b'Unknown command.')
         except Exception as e:
-            console.print(f"[bold red][-][/bold red] Error handling client {addr}: {e}")
+            console.print(f"[bold red][-][/bold red] Error handling client {addr}: {e}", style="bold red")
         finally:
             with self.lock:
                 if username and username in self.clients:
@@ -134,7 +138,7 @@ class ChatServer:
                 if group_name and username in self.groups.get(group_name, {}).get('participants', []):
                     self.groups[group_name]['participants'].remove(username)
             conn.close()
-            console.print(f"[bold yellow][-][/bold yellow] Disconnected from {addr}")
+            console.print(f"[bold yellow][-][/bold yellow] Disconnected from {addr}", style="bold yellow")
 
     def broadcast_message(self, group_name, message, exclude=None):
         participants = self.groups.get(group_name, {}).get('participants', [])
@@ -145,7 +149,7 @@ class ChatServer:
                     try:
                         participant_conn.sendall(message.encode())
                     except:
-                        console.print(f"[bold red][-][/bold red] Failed to send message to {participant}.")
+                        console.print(f"[bold red][-][/bold red] Failed to send message to {participant}.", style="bold red")
 
 class ChatClient:
     def __init__(self, username, group_name, passkey, server_ip, port):
@@ -165,14 +169,14 @@ class ChatClient:
             elif mode == 'join':
                 self.sock.sendall(f'join {self.username} {self.group_name} {self.passkey}'.encode())
             response = self.sock.recv(BUFFER_SIZE).decode()
-            console.print(response)
+            console.print(Panel(response, style="bold green"))
             if 'successfully' in response:
                 threading.Thread(target=self.receive_messages, daemon=True).start()
                 self.send_messages()
             else:
                 self.sock.close()
         except Exception as e:
-            console.print(f"[bold red][-][/bold red] Connection error: {e}")
+            console.print(f"[bold red][-][/bold red] Connection error: {e}", style="bold red")
 
     def receive_messages(self):
         while not self.stop_threads.is_set():
@@ -181,7 +185,7 @@ class ChatClient:
                 if message:
                     console.print(f"\r{message}")
             except Exception as e:
-                console.print(f"[bold red][-][/bold red] Receive error: {e}")
+                console.print(f"[bold red][-][/bold red] Receive error: {e}", style="bold red")
                 self.stop_threads.set()
                 break
 
@@ -209,21 +213,27 @@ class ChatClient:
             self.sock.sendall(f'exit'.encode())
             self.stop_threads.set()
         except Exception as e:
-            console.print(f"[bold red][-][/bold red] Send error: {e}")
+            console.print(f"[bold red][-][/bold red] Send error: {e}", style="bold red")
             self.stop_threads.set()
         finally:
             self.sock.close()
 
 def create_group():
-    username = Prompt.ask("Enter your username")
-    group_name = Prompt.ask("Enter group name")
-    passkey = Prompt.ask("Enter group passkey", password=True)
+    clear_screen()
+    display_banner()
+    username = Prompt.ask("[bold cyan]Enter your username[/bold cyan]")
+    group_name = Prompt.ask("[bold cyan]Enter group name[/bold cyan]")
+    passkey = Prompt.ask("[bold cyan]Enter group passkey[/bold cyan]", password=True)
 
     local_ip = get_local_ip()
     # Start server in a separate thread
     chat_server = ChatServer(local_ip, PORT)
     server_thread = threading.Thread(target=chat_server.start_server, daemon=True)
     server_thread.start()
+
+    console.print(f"[bold green]Your IP Address is: {local_ip}[/bold green]")
+    console.print("[bold yellow]Share this IP with others to let them join your group.[/bold yellow]")
+    console.print("[bold magenta]Waiting for participants to join...[/bold magenta]\n")
 
     # Wait a moment for the server to start
     time.sleep(1)
@@ -233,25 +243,31 @@ def create_group():
     chat_client.connect_to_server('create')
 
 def join_group():
-    username = Prompt.ask("Enter your username")
-    group_name = Prompt.ask("Enter group name")
-    passkey = Prompt.ask("Enter group passkey", password=True)
-    server_ip = Prompt.ask("Enter group creator's IP address")
+    clear_screen()
+    display_banner()
+    username = Prompt.ask("[bold cyan]Enter your username[/bold cyan]")
+    group_name = Prompt.ask("[bold cyan]Enter group name[/bold cyan]")
+    passkey = Prompt.ask("[bold cyan]Enter group passkey[/bold cyan]", password=True)
+    server_ip = Prompt.ask("[bold cyan]Enter group creator's IP address[/bold cyan]")
 
     # Start client
     chat_client = ChatClient(username, group_name, passkey, server_ip, PORT)
     chat_client.connect_to_server('join')
+
+def main_menu():
+    table = Table(title="Main Menu", show_header=False, box=box.ROUNDED)
+    table.add_row("[bold green][1][/bold green]", "Create a new group")
+    table.add_row("[bold green][2][/bold green]", "Join an existing group")
+    table.add_row("[bold green][3][/bold green]", "Exit")
+    console.print(table)
 
 def main():
     while True:
         try:
             clear_screen()
             display_banner()
-            console.print("[bold green][1][/bold green] Create a new group")
-            console.print("[bold green][2][/bold green] Join an existing group")
-            console.print("[bold green][3][/bold green] Exit")
-
-            choice = Prompt.ask("Choose an option", choices=['1', '2', '3'], default='3')
+            main_menu()
+            choice = Prompt.ask("[bold yellow]Choose an option[/bold yellow]", choices=['1', '2', '3'], default='3')
 
             if choice == '1':
                 create_group()
