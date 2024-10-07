@@ -82,6 +82,7 @@ class ChatServer:
                                 else:
                                     self.groups[group_name] = {'passkey': passkey, 'participants': {username: conn}}
                                     conn.sendall(b'Group created successfully. Waiting for participants...')
+                                    self.send_user_list(group_name)
                                     logging.info(f"Group '{group_name}' created by {username}.")
                         else:
                             conn.sendall(b'Invalid command format for create.')
@@ -97,6 +98,7 @@ class ChatServer:
                                     self.groups[group_name]['participants'][username] = conn
                                     conn.sendall(b'Joined group successfully.')
                                     self.broadcast_message(group_name, f"<{username}> joined the group.", exclude=username)
+                                    self.send_user_list(group_name)
                                     logging.info(f"{username} joined group '{group_name}'.")
                                 else:
                                     conn.sendall(b'Failed to join group. Check group name and passkey.')
@@ -119,6 +121,26 @@ class ChatServer:
                             conn.sendall(b'Invalid command format for msg.')
                     else:
                         conn.sendall(b'Missing arguments for msg command.')
+                elif command == 'pm':
+                    if args:
+                        parts = args[0].split(' ', 2)
+                        if len(parts) == 3:
+                            group_name, target_user, message = parts
+                            with self.lock:
+                                if group_name in self.groups and username in self.groups[group_name]['participants']:
+                                    participants = self.groups[group_name]['participants']
+                                    if target_user in participants:
+                                        conn_target = participants[target_user]
+                                        conn_target.sendall(f"(Private) {username}: {message}".encode())
+                                        conn.sendall(f"(Private to {target_user}) You: {message}".encode())
+                                    else:
+                                        conn.sendall(b'The user is not in the group.')
+                                else:
+                                    conn.sendall(b'You are not in this group.')
+                        else:
+                            conn.sendall(b'Invalid command format for pm.')
+                    else:
+                        conn.sendall(b'Missing arguments for pm command.')
                 elif command == 'exit':
                     with self.lock:
                         if group_name and username:
@@ -126,9 +148,16 @@ class ChatServer:
                             if username in participants:
                                 del participants[username]
                                 self.broadcast_message(group_name, f"<{username}> has left the group.")
+                                self.send_user_list(group_name)
                     break
                 else:
-                    conn.sendall(b'Unknown command.')
+                    # Store username and group_name for later use
+                    if command == 'username':
+                        username = args[0]
+                    elif command == 'group':
+                        group_name = args[0]
+                    else:
+                        conn.sendall(b'Unknown command.')
         except Exception as e:
             logging.error(f"Error handling client {addr}: {e}")
         finally:
@@ -137,6 +166,8 @@ class ChatServer:
                     participants = self.groups.get(group_name, {}).get('participants', {})
                     if username in participants:
                         del participants[username]
+                        self.broadcast_message(group_name, f"<{username}> has left the group.")
+                        self.send_user_list(group_name)
             conn.close()
             logging.info(f"Disconnected from {addr}")
 
@@ -152,6 +183,19 @@ class ChatServer:
                 except Exception as e:
                     logging.error(f"Failed to send message to {participant}: {e}")
 
+    def send_user_list(self, group_name):
+        """
+        Sends the updated user list to all participants in the group.
+        """
+        participants = self.groups.get(group_name, {}).get('participants', {})
+        user_list = list(participants.keys())
+        message = "userlist " + ",".join(user_list)
+        for conn in participants.values():
+            try:
+                conn.sendall(message.encode())
+            except Exception as e:
+                logging.error(f"Failed to send user list: {e}")
+
 
 class ChatClient(QtCore.QObject):
     """
@@ -161,6 +205,7 @@ class ChatClient(QtCore.QObject):
     message_received = QtCore.pyqtSignal(str)
     connection_error = QtCore.pyqtSignal(str)
     connected = QtCore.pyqtSignal(str)
+    user_list_updated = QtCore.pyqtSignal(list)
 
     def __init__(self, username, group_name, passkey, server_ip, port):
         super().__init__()
@@ -181,6 +226,9 @@ class ChatClient(QtCore.QObject):
     def _connect(self, mode):
         try:
             self.sock.connect((self.server_ip, self.port))
+            self.sock.sendall(f'username {self.username}'.encode())
+            self.sock.sendall(f'group {self.group_name}'.encode())
+
             if mode == 'create':
                 self.sock.sendall(f'create {self.username} {self.group_name} {self.passkey}'.encode())
             elif mode == 'join':
@@ -209,7 +257,11 @@ class ChatClient(QtCore.QObject):
             try:
                 message = self.sock.recv(BUFFER_SIZE).decode()
                 if message:
-                    self.message_received.emit(message)
+                    if message.startswith("userlist"):
+                        user_list = message[len("userlist "):].split(',')
+                        self.user_list_updated.emit(user_list)
+                    else:
+                        self.message_received.emit(message)
                 else:
                     self.stop_threads.set()
             except Exception as e:
@@ -217,7 +269,7 @@ class ChatClient(QtCore.QObject):
                 self.stop_threads.set()
                 break
 
-    def send_message(self, message):
+    def send_message(self, message, target_user=None):
         """
         Sends a message to the server.
         """
@@ -227,7 +279,12 @@ class ChatClient(QtCore.QObject):
                 self.stop_threads.set()
                 self.sock.close()
             else:
-                self.sock.sendall(f'msg {self.group_name} {message}'.encode())
+                if target_user:
+                    # Send private message
+                    self.sock.sendall(f'pm {self.group_name} {target_user} {message}'.encode())
+                else:
+                    # Send public message
+                    self.sock.sendall(f'msg {self.group_name} {message}'.encode())
         except Exception as e:
             self.connection_error.emit(f"Send error: {e}")
             self.stop_threads.set()
@@ -242,7 +299,7 @@ class ChatGUI(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("ChatMate")
-        self.setGeometry(100, 100, 500, 500)
+        self.setGeometry(100, 100, 800, 600)  # Increased window size
         self.client = None
 
         self.init_login_ui()
@@ -323,6 +380,7 @@ class ChatGUI(QtWidgets.QMainWindow):
         self.client.message_received.connect(self.add_message)
         self.client.connection_error.connect(self.show_error)
         self.client.connected.connect(self.add_message)
+        self.client.user_list_updated.connect(self.update_user_list)
 
         self.init_chat_ui()
         self.client.connect_to_server('create')
@@ -345,6 +403,7 @@ class ChatGUI(QtWidgets.QMainWindow):
         self.client.message_received.connect(self.add_message)
         self.client.connection_error.connect(self.show_error)
         self.client.connected.connect(self.add_message)
+        self.client.user_list_updated.connect(self.update_user_list)
 
         self.init_chat_ui()
         self.client.connect_to_server('join')
@@ -353,20 +412,24 @@ class ChatGUI(QtWidgets.QMainWindow):
         """
         Sets up the chat screen where messages are displayed and can be sent.
         """
-        self.resize(800, 600)
+        self.resize(1000, 700)  # Increased window size
         self.central_widget = QtWidgets.QWidget()
         self.setCentralWidget(self.central_widget)
 
-        layout = QtWidgets.QVBoxLayout(self.central_widget)
+        main_layout = QtWidgets.QHBoxLayout(self.central_widget)
+
+        # Left side - Chat display and input
+        left_layout = QtWidgets.QVBoxLayout()
+        main_layout.addLayout(left_layout, 3)  # Give 3/4 of the space
 
         # Chat display
         self.chat_display = QtWidgets.QTextEdit()
         self.chat_display.setReadOnly(True)
-        layout.addWidget(self.chat_display)
+        left_layout.addWidget(self.chat_display)
 
         # Message entry and send button
         entry_layout = QtWidgets.QHBoxLayout()
-        layout.addLayout(entry_layout)
+        left_layout.addLayout(entry_layout)
 
         self.message_entry = QtWidgets.QLineEdit()
         self.message_entry.returnPressed.connect(self.send_message)
@@ -375,6 +438,26 @@ class ChatGUI(QtWidgets.QMainWindow):
         send_button = QtWidgets.QPushButton("Send")
         send_button.clicked.connect(self.send_message)
         entry_layout.addWidget(send_button)
+
+        # Right side - User list
+        right_layout = QtWidgets.QVBoxLayout()
+        main_layout.addLayout(right_layout, 1)  # Give 1/4 of the space
+
+        user_list_label = QtWidgets.QLabel("Users in Chat")
+        font = QtGui.QFont()
+        font.setPointSize(14)
+        font.setBold(True)
+        user_list_label.setFont(font)
+        user_list_label.setAlignment(QtCore.Qt.AlignCenter)
+        right_layout.addWidget(user_list_label)
+
+        self.user_list_widget = QtWidgets.QListWidget()
+        right_layout.addWidget(self.user_list_widget)
+
+        # Private message button
+        pm_button = QtWidgets.QPushButton("Send Private Message")
+        pm_button.clicked.connect(self.send_private_message)
+        right_layout.addWidget(pm_button)
 
     def add_message(self, message):
         """
@@ -397,6 +480,30 @@ class ChatGUI(QtWidgets.QMainWindow):
         if message:
             self.client.send_message(message)
             self.message_entry.clear()
+
+    def update_user_list(self, user_list):
+        """
+        Updates the user list displayed in the GUI.
+        """
+        self.user_list_widget.clear()
+        self.user_list_widget.addItems(user_list)
+
+    def send_private_message(self):
+        """
+        Sends a private message to the selected user.
+        """
+        selected_items = self.user_list_widget.selectedItems()
+        if selected_items:
+            target_user = selected_items[0].text()
+            if target_user == self.client.username:
+                QtWidgets.QMessageBox.warning(self, "Warning", "You cannot send a private message to yourself.")
+                return
+            message, ok = QtWidgets.QInputDialog.getText(self, "Private Message",
+                                                         f"Enter message to {target_user}:")
+            if ok and message:
+                self.client.send_message(message, target_user=target_user)
+        else:
+            QtWidgets.QMessageBox.warning(self, "Warning", "Please select a user to send a private message.")
 
     def show_error(self, error_message):
         """
