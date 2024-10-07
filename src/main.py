@@ -1,10 +1,9 @@
 import socket
 import threading
 import time
-import tkinter as tk
-from tkinter import scrolledtext, messagebox, ttk
 import logging
 from datetime import datetime
+from PyQt5 import QtWidgets, QtCore, QtGui
 
 # Configuration
 PORT = 65433  # Changed Port to avoid conflicts
@@ -154,18 +153,22 @@ class ChatServer:
                     logging.error(f"Failed to send message to {participant}: {e}")
 
 
-class ChatClient:
+class ChatClient(QtCore.QObject):
     """
     A class representing the chat client.
     Connects to a chat server and communicates with it.
     """
-    def __init__(self, username, group_name, passkey, server_ip, port, gui_app):
+    message_received = QtCore.pyqtSignal(str)
+    connection_error = QtCore.pyqtSignal(str)
+    connected = QtCore.pyqtSignal(str)
+
+    def __init__(self, username, group_name, passkey, server_ip, port):
+        super().__init__()
         self.username = username
         self.group_name = group_name
         self.passkey = passkey
         self.server_ip = server_ip
         self.port = port
-        self.gui_app = gui_app
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.stop_threads = threading.Event()
 
@@ -173,6 +176,9 @@ class ChatClient:
         """
         Connects to the chat server and sends the appropriate command (create or join).
         """
+        threading.Thread(target=self._connect, args=(mode,), daemon=True).start()
+
+    def _connect(self, mode):
         try:
             self.sock.connect((self.server_ip, self.port))
             if mode == 'create':
@@ -180,34 +186,34 @@ class ChatClient:
             elif mode == 'join':
                 self.sock.sendall(f'join {self.username} {self.group_name} {self.passkey}'.encode())
             else:
-                self.gui_app.add_message("Invalid mode.")
+                self.connection_error.emit("Invalid mode.")
                 self.sock.close()
                 return
 
             response = self.sock.recv(BUFFER_SIZE).decode()
             if 'successfully' in response:
-                self.gui_app.add_message(response)
+                self.connected.emit(response)
                 threading.Thread(target=self.receive_messages, daemon=True).start()
             else:
-                self.gui_app.add_message(response)
+                self.connection_error.emit(response)
                 self.sock.close()
         except Exception as e:
-            self.gui_app.add_message(f"Connection error: {e}")
+            self.connection_error.emit(f"Connection error: {e}")
             self.sock.close()
 
     def receive_messages(self):
         """
-        Receives messages from the server and displays them in the GUI.
+        Receives messages from the server and emits them to the GUI.
         """
         while not self.stop_threads.is_set():
             try:
                 message = self.sock.recv(BUFFER_SIZE).decode()
                 if message:
-                    self.gui_app.add_message(message)
+                    self.message_received.emit(message)
                 else:
                     self.stop_threads.set()
             except Exception as e:
-                self.gui_app.add_message(f"Receive error: {e}")
+                self.connection_error.emit(f"Receive error: {e}")
                 self.stop_threads.set()
                 break
 
@@ -223,101 +229,88 @@ class ChatClient:
             else:
                 self.sock.sendall(f'msg {self.group_name} {message}'.encode())
         except Exception as e:
-            self.gui_app.add_message(f"Send error: {e}")
+            self.connection_error.emit(f"Send error: {e}")
             self.stop_threads.set()
             self.sock.close()
 
 
-class ChatGUI:
+class ChatGUI(QtWidgets.QMainWindow):
     """
     A class representing the chat GUI.
     Manages the user interface and interactions.
     """
     def __init__(self):
-        self.root = tk.Tk()
-        self.root.title("ChatMate")
-        self.root.geometry("500x500")
-        self.root.resizable(False, False)
+        super().__init__()
+        self.setWindowTitle("ChatMate")
+        self.setGeometry(100, 100, 500, 500)
         self.client = None
 
-        # Set the style
-        self.style = ttk.Style()
-        self.style.theme_use('clam')
+        self.init_login_ui()
 
-        # Configure custom styles
-        self.style.configure('Header.TLabel', font=('Helvetica', 18, 'bold'))
-        self.style.configure('TLabel', font=('Helvetica', 12))
-        self.style.configure('TEntry', font=('Helvetica', 12))
-        self.style.configure('TButton', font=('Helvetica', 12))
-        self.style.configure('Accent.TButton', foreground='white', background='#0078D7')
-        self.style.map('Accent.TButton',
-                       background=[('active', '#005A9E'), ('disabled', '#D6D6D6')])
-
-        self.create_login_screen()
-
-    def create_login_screen(self):
+    def init_login_ui(self):
         """
         Creates the login screen for the user to enter credentials and server details.
         """
-        self.clear_screen()
+        self.central_widget = QtWidgets.QWidget()
+        self.setCentralWidget(self.central_widget)
 
-        main_frame = ttk.Frame(self.root, padding="20")
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        layout = QtWidgets.QVBoxLayout(self.central_widget)
 
-        title_label = ttk.Label(main_frame, text="Welcome to ChatMate", style='Header.TLabel')
-        title_label.pack(pady=20)
+        title = QtWidgets.QLabel("Welcome to ChatMate")
+        title.setAlignment(QtCore.Qt.AlignCenter)
+        font = QtGui.QFont()
+        font.setPointSize(18)
+        font.setBold(True)
+        title.setFont(font)
+        layout.addWidget(title)
 
-        form_frame = ttk.Frame(main_frame)
-        form_frame.pack(pady=10, fill=tk.X)
-
-        # Configure grid layout
-        form_frame.columnconfigure(1, weight=1)
+        form_layout = QtWidgets.QFormLayout()
+        layout.addLayout(form_layout)
 
         # Username
-        ttk.Label(form_frame, text="Username:").grid(row=0, column=0, sticky=tk.E, padx=5, pady=5)
-        self.username_entry = ttk.Entry(form_frame)
-        self.username_entry.grid(row=0, column=1, padx=5, pady=5, sticky=tk.EW)
+        self.username_entry = QtWidgets.QLineEdit()
+        form_layout.addRow("Username:", self.username_entry)
 
         # Group Name
-        ttk.Label(form_frame, text="Group Name:").grid(row=1, column=0, sticky=tk.E, padx=5, pady=5)
-        self.group_name_entry = ttk.Entry(form_frame)
-        self.group_name_entry.grid(row=1, column=1, padx=5, pady=5, sticky=tk.EW)
+        self.group_name_entry = QtWidgets.QLineEdit()
+        form_layout.addRow("Group Name:", self.group_name_entry)
 
         # Passkey
-        ttk.Label(form_frame, text="Passkey:").grid(row=2, column=0, sticky=tk.E, padx=5, pady=5)
-        self.passkey_entry = ttk.Entry(form_frame, show='*')
-        self.passkey_entry.grid(row=2, column=1, padx=5, pady=5, sticky=tk.EW)
+        self.passkey_entry = QtWidgets.QLineEdit()
+        self.passkey_entry.setEchoMode(QtWidgets.QLineEdit.Password)
+        form_layout.addRow("Passkey:", self.passkey_entry)
 
         # Server IP
-        ttk.Label(form_frame, text="Server IP:").grid(row=3, column=0, sticky=tk.E, padx=5, pady=5)
-        self.server_ip_entry = ttk.Entry(form_frame)
-        self.server_ip_entry.grid(row=3, column=1, padx=5, pady=5, sticky=tk.EW)
-        self.server_ip_entry.insert(0, "127.0.0.1")
+        self.server_ip_entry = QtWidgets.QLineEdit()
+        self.server_ip_entry.setText("127.0.0.1")
+        form_layout.addRow("Server IP:", self.server_ip_entry)
 
         # Buttons
-        button_frame = ttk.Frame(main_frame)
-        button_frame.pack(pady=20)
+        button_layout = QtWidgets.QHBoxLayout()
+        layout.addLayout(button_layout)
 
-        create_button = ttk.Button(button_frame, text="Create Group", command=self.create_group, style='Accent.TButton')
-        create_button.grid(row=0, column=0, padx=10)
+        create_button = QtWidgets.QPushButton("Create Group")
+        create_button.clicked.connect(self.create_group)
+        button_layout.addWidget(create_button)
 
-        join_button = ttk.Button(button_frame, text="Join Group", command=self.join_group)
-        join_button.grid(row=0, column=1, padx=10)
+        join_button = QtWidgets.QPushButton("Join Group")
+        join_button.clicked.connect(self.join_group)
+        button_layout.addWidget(join_button)
 
     def create_group(self):
         """
         Handles the creation of a new chat group and starts the server.
         """
-        username = self.username_entry.get().strip()
-        group_name = self.group_name_entry.get().strip()
-        passkey = self.passkey_entry.get().strip()
-        server_ip = self.server_ip_entry.get().strip()
+        username = self.username_entry.text().strip()
+        group_name = self.group_name_entry.text().strip()
+        passkey = self.passkey_entry.text().strip()
+        server_ip = self.server_ip_entry.text().strip()
 
         if not username or not group_name or not passkey:
-            messagebox.showerror("Error", "All fields are required.")
+            QtWidgets.QMessageBox.critical(self, "Error", "All fields are required.")
             return
 
-        local_ip = server_ip if server_ip else ' 192.168.253.134'
+        local_ip = server_ip if server_ip else get_local_ip()
 
         # Start server in a separate thread
         chat_server = ChatServer(local_ip, PORT)
@@ -326,110 +319,106 @@ class ChatGUI:
         time.sleep(1)
 
         # Start client
-        self.client = ChatClient(username, group_name, passkey, local_ip, PORT, self)
-        self.create_chat_screen()  # Moved before connect_to_server
+        self.client = ChatClient(username, group_name, passkey, local_ip, PORT)
+        self.client.message_received.connect(self.add_message)
+        self.client.connection_error.connect(self.show_error)
+        self.client.connected.connect(self.add_message)
+
+        self.init_chat_ui()
         self.client.connect_to_server('create')
 
     def join_group(self):
         """
         Handles joining an existing chat group.
         """
-        username = self.username_entry.get().strip()
-        group_name = self.group_name_entry.get().strip()
-        passkey = self.passkey_entry.get().strip()
-        server_ip = self.server_ip_entry.get().strip()
+        username = self.username_entry.text().strip()
+        group_name = self.group_name_entry.text().strip()
+        passkey = self.passkey_entry.text().strip()
+        server_ip = self.server_ip_entry.text().strip()
 
         if not username or not group_name or not passkey or not server_ip:
-            messagebox.showerror("Error", "All fields are required.")
+            QtWidgets.QMessageBox.critical(self, "Error", "All fields are required.")
             return
 
         # Start client
-        self.client = ChatClient(username, group_name, passkey, server_ip, PORT, self)
-        self.create_chat_screen()  # Moved before connect_to_server
+        self.client = ChatClient(username, group_name, passkey, server_ip, PORT)
+        self.client.message_received.connect(self.add_message)
+        self.client.connection_error.connect(self.show_error)
+        self.client.connected.connect(self.add_message)
+
+        self.init_chat_ui()
         self.client.connect_to_server('join')
 
-    def create_chat_screen(self):
+    def init_chat_ui(self):
         """
         Sets up the chat screen where messages are displayed and can be sent.
         """
-        self.clear_screen()
+        self.resize(800, 600)
+        self.central_widget = QtWidgets.QWidget()
+        self.setCentralWidget(self.central_widget)
 
-        self.root.geometry("800x600")
-        self.root.resizable(True, True)
-
-        main_frame = ttk.Frame(self.root, padding="5")
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        layout = QtWidgets.QVBoxLayout(self.central_widget)
 
         # Chat display
-        self.chat_display = scrolledtext.ScrolledText(main_frame, state='disabled', wrap=tk.WORD, font=("Helvetica", 12),
-                                                      bg='#FFFFFF', fg='#000000')
-        self.chat_display.pack(padx=5, pady=5, fill=tk.BOTH, expand=True)
+        self.chat_display = QtWidgets.QTextEdit()
+        self.chat_display.setReadOnly(True)
+        layout.addWidget(self.chat_display)
 
-        # Configure tags for message formatting
-        self.chat_display.tag_configure('user', foreground='#0078D7', font=('Helvetica', 12, 'bold'))
-        self.chat_display.tag_configure('other', foreground='#000000', font=('Helvetica', 12))
-        self.chat_display.tag_configure('system', foreground='#888888', font=('Helvetica', 12, 'italic'))
+        # Message entry and send button
+        entry_layout = QtWidgets.QHBoxLayout()
+        layout.addLayout(entry_layout)
 
-        # Message entry frame
-        entry_frame = ttk.Frame(main_frame)
-        entry_frame.pack(fill=tk.X, pady=5)
-        entry_frame.columnconfigure(0, weight=1)
+        self.message_entry = QtWidgets.QLineEdit()
+        self.message_entry.returnPressed.connect(self.send_message)
+        entry_layout.addWidget(self.message_entry)
 
-        self.message_entry = tk.Entry(entry_frame, font=("Helvetica", 12), bg='#FFFFFF', fg='#000000')
-        self.message_entry.grid(row=0, column=0, padx=5, pady=5, sticky='ew')
-        self.message_entry.bind("<Return>", self.send_message)
-
-        send_button = ttk.Button(entry_frame, text="Send", command=self.send_message, style='Accent.TButton')
-        send_button.grid(row=0, column=1, padx=5, pady=5)
+        send_button = QtWidgets.QPushButton("Send")
+        send_button.clicked.connect(self.send_message)
+        entry_layout.addWidget(send_button)
 
     def add_message(self, message):
         """
         Adds a message to the chat display with a timestamp.
         """
-        self.chat_display.configure(state='normal')
         timestamp = datetime.now().strftime('%H:%M:%S')
 
-        # Determine the message type
-        if message.startswith(f"{self.client.username}:"):
-            tag = 'user'
+        if self.client and message.startswith(f"{self.client.username}:"):
             display_message = f"[{timestamp}] You: {message[len(self.client.username)+1:].strip()}\n"
-        elif message.startswith('<') and ('joined the group' in message or 'has left the group' in message):
-            tag = 'system'
-            display_message = f"[{timestamp}] {message}\n"
         else:
-            tag = 'other'
             display_message = f"[{timestamp}] {message}\n"
 
-        self.chat_display.insert(tk.END, display_message, tag)
-        self.chat_display.configure(state='disabled')
-        self.chat_display.see(tk.END)
+        self.chat_display.append(display_message)
 
-    def send_message(self, event=None):
+    def send_message(self):
         """
         Sends a message entered by the user.
         """
-        message = self.message_entry.get().strip()
+        message = self.message_entry.text().strip()
         if message:
             self.client.send_message(message)
-            self.message_entry.delete(0, tk.END)
+            self.message_entry.clear()
 
-    def clear_screen(self):
+    def show_error(self, error_message):
         """
-        Clears all widgets from the screen.
+        Displays an error message to the user.
         """
-        for widget in self.root.winfo_children():
-            widget.destroy()
+        QtWidgets.QMessageBox.critical(self, "Error", error_message)
 
-    def run(self):
+    def closeEvent(self, event):
         """
-        Runs the GUI application.
+        Handles the window close event to clean up resources.
         """
-        self.root.mainloop()
+        if self.client:
+            self.client.send_message('/exit')
+        event.accept()
 
 
 def main():
-    app = ChatGUI()
-    app.run()
+    import sys
+    app = QtWidgets.QApplication(sys.argv)
+    gui = ChatGUI()
+    gui.show()
+    sys.exit(app.exec_())
 
 
 if __name__ == "__main__":
