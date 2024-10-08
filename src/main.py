@@ -109,12 +109,10 @@ class ChatServer:
                 elif command == 'msg':
                     if args:
                         if ' ' in args[0]:
-                            group_name_msg = args[0].split(' ', 1)
-                            group_name = group_name_msg[0]
-                            message = group_name_msg[1]
+                            msg_group_name, message = args[0].split(' ', 1)
                             with self.lock:
-                                if group_name in self.groups and username in self.groups[group_name]['participants']:
-                                    self.broadcast_message(group_name, f"{username}: {message}")
+                                if msg_group_name in self.groups and username in self.groups[msg_group_name]['participants']:
+                                    self.broadcast_message(msg_group_name, f"{username}: {message}")
                                 else:
                                     conn.sendall(b'You are not in this group.')
                         else:
@@ -125,10 +123,10 @@ class ChatServer:
                     if args:
                         parts = args[0].split(' ', 2)
                         if len(parts) == 3:
-                            group_name, target_user, message = parts
+                            pm_group_name, target_user, message = parts
                             with self.lock:
-                                if group_name in self.groups and username in self.groups[group_name]['participants']:
-                                    participants = self.groups[group_name]['participants']
+                                if pm_group_name in self.groups and username in self.groups[pm_group_name]['participants']:
+                                    participants = self.groups[pm_group_name]['participants']
                                     if target_user in participants:
                                         conn_target = participants[target_user]
                                         conn_target.sendall(f"(Private) {username}: {message}".encode())
@@ -152,10 +150,6 @@ class ChatServer:
                     break
                 else:
                     conn.sendall(b'Unknown command.')
-                # Store username and group_name after successful create or join
-                if command in ['create', 'join'] and username and group_name:
-                    # Keep track of client's username and group
-                    pass
         except Exception as e:
             logging.error(f"Error handling client {addr}: {e}")
         finally:
@@ -168,6 +162,7 @@ class ChatServer:
                         self.send_user_list(group_name)
             conn.close()
             logging.info(f"Disconnected from {addr}")
+
 
     def broadcast_message(self, group_name, message, exclude=None):
         """
