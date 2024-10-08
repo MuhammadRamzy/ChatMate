@@ -5,7 +5,7 @@ with open('README.md', 'r', encoding='utf-8') as fh:
 
 setup(
     name="chatmate",
-    version="0.1.0",
+    version="1.0.0",
     description="ChatMate is a local network-based chat application where users can create and join chat groups with a passkey. The program allows multiple users to connect within the same local network, chat in real-time, and assigns each user a unique color for their messages.",
     author="Muhammad Ramzy",
     author_email="mhdramzy777@gmail.com",
@@ -15,7 +15,8 @@ setup(
     packages=find_packages(),
     install_requires=[
         "termcolor",
-        "pyfiglet"
+        "pyfiglet",
+        "PyQt5"
     ],
     entry_points={
         'console_scripts': [
