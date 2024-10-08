@@ -151,13 +151,11 @@ class ChatServer:
                                 self.send_user_list(group_name)
                     break
                 else:
-                    # Store username and group_name for later use
-                    if command == 'username':
-                        username = args[0]
-                    elif command == 'group':
-                        group_name = args[0]
-                    else:
-                        conn.sendall(b'Unknown command.')
+                    conn.sendall(b'Unknown command.')
+                # Store username and group_name after successful create or join
+                if command in ['create', 'join'] and username and group_name:
+                    # Keep track of client's username and group
+                    pass
         except Exception as e:
             logging.error(f"Error handling client {addr}: {e}")
         finally:
@@ -226,9 +224,6 @@ class ChatClient(QtCore.QObject):
     def _connect(self, mode):
         try:
             self.sock.connect((self.server_ip, self.port))
-            self.sock.sendall(f'username {self.username}'.encode())
-            self.sock.sendall(f'group {self.group_name}'.encode())
-
             if mode == 'create':
                 self.sock.sendall(f'create {self.username} {self.group_name} {self.passkey}'.encode())
             elif mode == 'join':
@@ -299,7 +294,7 @@ class ChatGUI(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("ChatMate")
-        self.setGeometry(100, 100, 800, 600)  # Increased window size
+        self.setGeometry(500, 500, 1000, 700)  # Increased window size
         self.client = None
 
         self.init_login_ui()
@@ -445,7 +440,7 @@ class ChatGUI(QtWidgets.QMainWindow):
 
         user_list_label = QtWidgets.QLabel("Users in Chat")
         font = QtGui.QFont()
-        font.setPointSize(14)
+        font.setPointSize(10)
         font.setBold(True)
         user_list_label.setFont(font)
         user_list_label.setAlignment(QtCore.Qt.AlignCenter)
